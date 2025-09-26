@@ -91,6 +91,13 @@ class CoolDataset(Dataset):
         normalizations: dict[str, Normalization] = {
             "Pressure": ScaleNormalization(3.0),
             "Temperature": ZScoreNormalization(295.0, 5.0),
+            "Velocity_0": ZScoreNormalization(3.5, 2.0),
+            "Velocity_1": ScaleNormalization(0.2),
+            "Velocity_2": ScaleNormalization(0.1),
+            "WallShearStress_0": ScaleNormalization(1.0),
+            "WallShearStress_1": ScaleNormalization(0.1),
+            "WallShearStress_2": ScaleNormalization(0.1),
+            "HeatTransferCoefficient": ScaleNormalization(400.0),
         },
         device: int = 0,
         model_type=None,
@@ -112,14 +119,12 @@ class CoolDataset(Dataset):
         self.surface_variables = surface_variables
         self.volume_variables = volume_variables
 
-        self.global_params_types = global_params_types
-        self.global_params_reference = global_params_reference
-
-        self.stream_velocity = 0.0
-        for vel_component in self.global_params_reference["inlet_velocity"]:
-            self.stream_velocity += vel_component**2
-        self.stream_velocity = np.sqrt(self.stream_velocity)
-        self.air_density = self.global_params_reference["air_density"]
+        # self.stream_velocity = 0.0
+        # for vel_component in self.global_params_reference["inlet_velocity"]:
+        #     self.stream_velocity += vel_component**2
+        # self.stream_velocity = np.sqrt(self.stream_velocity)
+        # self.air_density = self.global_params_reference["air_density"]
+        self.normalizations = normalizations
 
         self.device = device
         self.model_type = model_type
@@ -143,7 +148,6 @@ class CoolDataset(Dataset):
         stl_sizes = np.array(stl_sizes.cell_data["Area"])
         stl_centers = np.array(surface_pv.cell_centers().points)
 
-        length_scale = np.amax(np.amax(stl_vertices, 0) - np.amin(stl_vertices, 0))
 
         if self.model_type == "volume" or self.model_type == "combined":
 
@@ -155,14 +159,13 @@ class CoolDataset(Dataset):
             volume_fields = np.concatenate(volume_fields, axis=-1)
 
             # Non-dimensionalize volume fields
-            volume_fields[:, :3] = volume_fields[:, :3] / self.stream_velocity
-            volume_fields[:, 3:4] = volume_fields[:, 3:4] / (
-                self.air_density * self.stream_velocity**2.0
-            )
-
-            volume_fields[:, 4:] = volume_fields[:, 4:] / (
-                self.stream_velocity * length_scale
-            )
+            for i, var in enumerate(self.volume_variables):
+                if var in self.normalizations:
+                    volume_fields[:, i] = self.normalizations[var].encode(
+                        volume_fields[:, i]
+                    )
+                else:
+                    raise ValueError(f"Normalization for {var} not provided")
         else:
             volume_fields = None
             volume_coordinates = None
@@ -190,9 +193,13 @@ class CoolDataset(Dataset):
             )
 
             # Non-dimensionalize surface fields
-            surface_fields = surface_fields / (
-                self.air_density * self.stream_velocity**2.0
-            )
+            for i, var in enumerate(self.surface_variables):
+                if var in self.normalizations:
+                    surface_fields[:, i] = self.normalizations[var].encode(
+                        surface_fields[:, i]
+                    )
+                else:
+                    raise ValueError(f"Normalization for {var} not provided")
         else:
             surface_fields = None
             surface_coordinates = None
@@ -201,37 +208,34 @@ class CoolDataset(Dataset):
 
         # Arrange global parameters reference in a list based on the type of the parameter
         global_params_reference_list = []
-        for name, type in self.global_params_types.items():
-            if type == "vector":
-                global_params_reference_list.extend(self.global_params_reference[name])
-            elif type == "scalar":
-                global_params_reference_list.append(self.global_params_reference[name])
-            else:
-                raise ValueError(
-                    f"Global parameter {name} not supported for  this dataset"
-                )
-        global_params_reference = np.array(
-            global_params_reference_list, dtype=np.float32
-        )
+        # for name, type in self.global_params_types.items():
+        #     if type == "vector":
+        #         global_params_reference_list.extend(self.global_params_reference[name])
+        #     elif type == "scalar":
+        #         global_params_reference_list.append(self.global_params_reference[name])
+        #     else:
+        #         raise ValueError(
+        #             f"Global parameter {name} not supported for  this dataset"
+        #         )
+        # global_params_reference = np.array(
+        #     global_params_reference_list, dtype=np.float32
+        # )
+        global_params_reference = None
 
         # Prepare the list of global parameter values for each simulation file
         # Note: The user must ensure that the values provided here correspond to the
         # `global_parameters` specified in `config.yaml` and that these parameters
         # exist within each simulation file.
         global_params_values_list = []
-        for key in self.global_params_types.keys():
-            if key == "inlet_velocity":
-                global_params_values_list.extend(
-                    self.global_params_reference["inlet_velocity"]
-                )
-            elif key == "air_density":
-                global_params_values_list.append(
-                    self.global_params_reference["air_density"]
-                )
+        for key in sorted(self.normalizations.keys()):
+            val = self.normalizations[key]
+            if isinstance(val, ScaleNormalization):
+                global_params_values_list.append(val.scale)
+            elif isinstance(val, ZScoreNormalization):
+                global_params_values_list.append(val.mean)
+                global_params_values_list.append(val.std)
             else:
-                raise ValueError(
-                    f"Global parameter {key} not supported for  this dataset"
-                )
+                raise ValueError(f"Normalization for {key} not supported")
         global_params_values = np.array(global_params_values_list, dtype=np.float32)
 
         # Add the parameters to the dictionary
