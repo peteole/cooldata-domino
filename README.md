@@ -1,3 +1,28 @@
+# Adaptation to CoolData dataset
+
+## Getting started
+
+Start a docker container with CUDA support with this image:
+
+```
+nvcr.io/nvidia/physicsnemo/physicsnemo:25.06
+```
+Then run
+```
+pip install cooldata
+```
+
+I tested this here:
+https://cloud.vast.ai/
+
+## TODO list:
+
+- [x] Create `cooldata_datapipe.py` based on `openfoam_datapipe.py`: This works already. Try it out in `main.ipynb`.
+- [ ] Update the config for CoolData dataset
+- [ ] Find out where the processed data is actually supposed to be cached to in the numpy format. Adopt this script.
+- [ ] Adopt caching in `cache_data.py` (optional?)
+- [ ] Train a model on CoolData dataset
+
 # DoMINO: Decomposable Multi-scale Iterative Neural Operator for External Aerodynamics
 
 DoMINO is a local, multi-scale, point-cloud based model architecture to model large-scale
@@ -31,7 +56,7 @@ Install the required dependencies by running below:
 pip install -r requirements.txt
 ```
 
-## Getting started with the DrivAerML example
+## Getting started with the CoolData example
 
 ### Configuration basics
 
